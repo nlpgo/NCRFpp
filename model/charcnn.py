@@ -3,8 +3,8 @@
 # @Date:   2017-10-17 16:47:32
 # @Last Modified by:   Jie Yang,     Contact: jieynlp@gmail.com
 # @Last Modified time: 2018-04-26 13:21:40
-from __future__ import print_function
 import torch
+import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
@@ -12,7 +12,7 @@ import numpy as np
 class CharCNN(nn.Module):
     def __init__(self, alphabet_size, pretrain_char_embedding, embedding_dim, hidden_dim, dropout, gpu):
         super(CharCNN, self).__init__()
-        print("build char sequence feature extractor: CNN ...")
+        print "build char sequence feature extractor: CNN ..."
         self.gpu = gpu
         self.hidden_dim = hidden_dim
         self.char_drop = nn.Dropout(dropout)
@@ -38,10 +38,10 @@ class CharCNN(nn.Module):
 
     def get_last_hiddens(self, input, seq_lengths):
         """
-            input:
+            input:  
                 input: Variable(batch_size, word_length)
                 seq_lengths: numpy array (batch_size,  1)
-            output:
+            output: 
                 Variable(batch_size, char_hidden_dim)
             Note it only accepts ordered (length) variable, length size is recorded in seq_lengths
         """
@@ -54,10 +54,10 @@ class CharCNN(nn.Module):
 
     def get_all_hiddens(self, input, seq_lengths):
         """
-            input:
+            input:  
                 input: Variable(batch_size,  word_length)
                 seq_lengths: numpy array (batch_size,  1)
-            output:
+            output: 
                 Variable(batch_size, word_length, char_hidden_dim)
             Note it only accepts ordered (length) variable, length size is recorded in seq_lengths
         """
@@ -71,3 +71,4 @@ class CharCNN(nn.Module):
 
     def forward(self, input, seq_lengths):
         return self.get_all_hiddens(input, seq_lengths)
+        

@@ -5,9 +5,11 @@
 # @Last Modified time: 2017-12-19 15:23:12
 
 # from operator import add
-#
-from __future__ import print_function
+# 
+import numpy as np
+import math
 import sys
+import os
 
 
 
@@ -56,7 +58,7 @@ def get_ner_fmeasure(golden_lists, predict_lists, label_type="BMES"):
         f_measure = 2*precision*recall/(precision+recall)
     accuracy = (right_tag+0.0)/all_tag
     # print "Accuracy: ", right_tag,"/",all_tag,"=",accuracy
-    print("gold_num = ", golden_num, " pred_num = ", predict_num, " right_num = ", right_num)
+    print "gold_num = ", golden_num, " pred_num = ", predict_num, " right_num = ", right_num
     return accuracy, precision, recall, f_measure
 
 
@@ -86,7 +88,7 @@ def get_ner_BMES(label_list):
                 tag_list.append(whole_tag + ',' + str(i-1))
             whole_tag = current_label.replace(begin_label,"",1) +'[' +str(i)
             index_tag = current_label.replace(begin_label,"",1)
-
+            
         elif single_label in current_label:
             if index_tag != '':
                 tag_list.append(whole_tag + ',' + str(i-1))
@@ -119,7 +121,7 @@ def get_ner_BIO(label_list):
     # assert(list_len == len(label_list)), "word list size unmatch with label list"
     list_len = len(label_list)
     begin_label = 'B-'
-    inside_label = 'I-'
+    inside_label = 'I-' 
     whole_tag = ''
     index_tag = ''
     tag_list = []
@@ -138,7 +140,7 @@ def get_ner_BIO(label_list):
 
         elif inside_label in current_label:
             if current_label.replace(inside_label,"",1) == index_tag:
-                whole_tag = whole_tag
+                whole_tag = whole_tag 
             else:
                 if (whole_tag != '')&(index_tag != ''):
                     tag_list.append(whole_tag +',' + str(i-1))
@@ -205,13 +207,13 @@ def readTwoLabelSentence(input_file, pred_col=-1):
             sentence.append(pair[0])
             golden_label.append(pair[1])
             predict_label.append(pair[pred_col])
-
+            
     return sentences,golden_labels,predict_labels
 
 
 def fmeasure_from_file(golden_file, predict_file, label_type="BMES"):
-    print("Get f measure from file:", golden_file, predict_file)
-    print("Label format:",label_type)
+    print "Get f measure from file:", golden_file, predict_file
+    print "Label format:",label_type
     golden_sent,golden_labels = readSentence(golden_file)
     predict_sent,predict_labels = readSentence(predict_file)
     P,R,F = get_ner_fmeasure(golden_labels, predict_labels, label_type)

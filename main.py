@@ -2,30 +2,31 @@
 # @Author: Jie
 # @Date:   2017-06-15 14:11:08
 # @Last Modified by:   Jie Yang,     Contact: jieynlp@gmail.com
-# @Last Modified time: 2018-07-15 20:24:24
+# @Last Modified time: 2018-04-26 14:10:30
 
-from __future__ import print_function
 import time
 import sys
 import argparse
 import random
+import copy
 import torch
 import gc
+import cPickle as pickle
 import torch.autograd as autograd
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from utils.metric import get_ner_fmeasure
 from model.seqmodel import SeqModel
 from utils.data import Data
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import os
+#Uncomment/Comment these lines to determine when and which GPU(s) to use
+#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-
-seed_num = 42
+seed_num = 17
 random.seed(seed_num)
 torch.manual_seed(seed_num)
 np.random.seed(seed_num)
@@ -52,18 +53,17 @@ def predict_check(pred_variable, gold_variable, mask_variable):
     overlaped = (pred == gold)
     right_token = np.sum(overlaped * mask)
     total_token = mask.sum()
-    # print("right: %s, total: %s"%(right_token, total_token))
     return right_token, total_token
 
 
 def recover_label(pred_variable, gold_variable, mask_variable, label_alphabet, word_recover):
     """
-        input:
-            pred_variable (batch_size, sent_len): pred tag result
-            gold_variable (batch_size, sent_len): gold result variable
-            mask_variable (batch_size, sent_len): mask variable
+    input:
+        pred_variable (batch_size, sent_len): pred tag result
+        gold_variable (batch_size, sent_len): gold result variable
+        mask_variable (batch_size, sent_len): mask variable
     """
-
+    
     pred_variable = pred_variable[word_recover]
     gold_variable = gold_variable[word_recover]
     mask_variable = mask_variable[word_recover]
@@ -93,11 +93,13 @@ def recover_nbest_label(pred_variable, mask_variable, label_alphabet, word_recov
         output:
             nbest_pred_label list: [batch_size, nbest, each_seq_len]
     """
+    # print "word recover:", word_recover.size()
     # exit(0)
     pred_variable = pred_variable[word_recover]
     mask_variable = mask_variable[word_recover]
     batch_size = pred_variable.size(0)
     seq_len = pred_variable.size(1)
+    # print pred_variable.size()
     nbest = pred_variable.size(2)
     mask = mask_variable.cpu().data.numpy()
     pred_tag = pred_variable.cpu().data.numpy()
@@ -128,19 +130,28 @@ def recover_nbest_label(pred_variable, mask_variable, label_alphabet, word_recov
 #     ## save data settings
 #     with open(save_file, 'w') as fp:
 #         pickle.dump(new_data, fp)
-#     print("Data setting saved to file:",save_file)
+#     print "Data setting saved to file: ", save_file
 
 
 # def load_data_setting(save_file):
 #     with open(save_file, 'r') as fp:
 #         data = pickle.load(fp)
-#     print("Data setting loaded from file: ", save_file)
+#     print "Data setting loaded from file: ", save_file
 #     data.show_data_summary()
 #     return data
 
 def lr_decay(optimizer, epoch, decay_rate, init_lr):
+    
+    #Trying the exponential learning decay
+    
+#     lr = init_lr * np.exp(-0.2*epoch)  #init_lr * (0.1 ** (epoch // 20))
+#     print " Learning rate is setted as:", lr
+#     for param_group in optimizer.param_groups:
+#         param_group['lr'] = lr
+    
+    #This is the regular decay
     lr = init_lr/(1+decay_rate*epoch)
-    print(" Learning rate is setted as:", lr)
+    print " Learning rate is setted as:", lr
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return optimizer
@@ -157,8 +168,7 @@ def evaluate(data, model, name, nbest=None):
     elif name == 'raw':
         instances = data.raw_Ids
     else:
-        print("Error: wrong evaluate name,", name)
-        exit(1)
+        print "Error: wrong evaluate name,", name
     right_token = 0
     whole_token = 0
     nbest_pred_results = []
@@ -167,13 +177,13 @@ def evaluate(data, model, name, nbest=None):
     gold_results = []
     ## set model in eval model
     model.eval()
-    batch_size = data.HP_batch_size
+    batch_size = 128#len(instances)#128 #For comparison against Vinyals et al. (2015)
     start_time = time.time()
     train_num = len(instances)
     total_batch = train_num//batch_size+1
     for batch_id in range(total_batch):
         start = batch_id*batch_size
-        end = (batch_id+1)*batch_size
+        end = (batch_id+1)*batch_size 
         if end > train_num:
             end =  train_num
         instance = instances[start:end]
@@ -183,13 +193,12 @@ def evaluate(data, model, name, nbest=None):
         if nbest:
             scores, nbest_tag_seq = model.decode_nbest(batch_word,batch_features, batch_wordlen, batch_char, batch_charlen, batch_charrecover, mask, nbest)
             nbest_pred_result = recover_nbest_label(nbest_tag_seq, mask, data.label_alphabet, batch_wordrecover)
-            nbest_pred_results += nbest_pred_result
+            nbest_pred_results += nbest_pred_result 
             pred_scores += scores[batch_wordrecover].cpu().data.numpy().tolist()
             ## select the best sequence to evalurate
             tag_seq = nbest_tag_seq[:,:,0]
         else:
             tag_seq = model(batch_word, batch_features, batch_wordlen, batch_char, batch_charlen, batch_charrecover, mask)
-        # print("tag:",tag_seq)
         pred_label, gold_label = recover_label(tag_seq, batch_label, mask, data.label_alphabet, batch_wordrecover)
         pred_results += pred_label
         gold_results += gold_label
@@ -204,7 +213,7 @@ def evaluate(data, model, name, nbest=None):
 def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
     """
         input: list of words, chars and labels, various length. [[words,chars, labels],[words,chars,labels],...]
-            words: word ids for one sentence. (batch_size, sent_len)
+            words: word ids for one sentence. (batch_size, sent_len) 
             chars: char ids for on sentences, various length. (batch_size, sent_len, each_word_length)
         output:
             zero padding for word and char, with their batch length
@@ -212,9 +221,9 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
             word_seq_lengths: (batch_size,1) Tensor
             char_seq_tensor: (batch_size*max_sent_len, max_word_len) Variable
             char_seq_lengths: (batch_size*max_sent_len,1) Tensor
-            char_seq_recover: (batch_size*max_sent_len,1)  recover char sequence order
+            char_seq_recover: (batch_size*max_sent_len,1)  recover char sequence order 
             label_seq_tensor: (batch_size, max_sent_len)
-            mask: (batch_size, max_sent_len)
+            mask: (batch_size, max_sent_len) 
     """
     batch_size = len(input_batch_list)
     words = [sent[0] for sent in input_batch_list]
@@ -222,7 +231,7 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
     feature_num = len(features[0][0])
     chars = [sent[2] for sent in input_batch_list]
     labels = [sent[3] for sent in input_batch_list]
-    word_seq_lengths = torch.LongTensor(list(map(len, words)))
+    word_seq_lengths = torch.LongTensor(map(len, words))
     max_seq_len = word_seq_lengths.max()
     word_seq_tensor = autograd.Variable(torch.zeros((batch_size, max_seq_len)), volatile =  volatile_flag).long()
     label_seq_tensor = autograd.Variable(torch.zeros((batch_size, max_seq_len)),volatile =  volatile_flag).long()
@@ -246,7 +255,7 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
     ### deal with char
     # pad_chars (batch_size, max_seq_len)
     pad_chars = [chars[idx] + [[0]] * (max_seq_len-len(chars[idx])) for idx in range(len(chars))]
-    length_list = [list(map(len, pad_char)) for pad_char in pad_chars]
+    length_list = [map(len, pad_char) for pad_char in pad_chars]
     max_word_len = max(map(max, length_list))
     char_seq_tensor = autograd.Variable(torch.zeros((batch_size, max_seq_len, max_word_len)), volatile =  volatile_flag).long()
     char_seq_lengths = torch.LongTensor(length_list)
@@ -254,7 +263,7 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
         for idy, (word, wordlen) in enumerate(zip(seq, seqlen)):
             # print len(word), wordlen
             char_seq_tensor[idx, idy, :wordlen] = torch.LongTensor(word)
-
+    
     char_seq_tensor = char_seq_tensor[word_perm_idx].view(batch_size*max_seq_len,-1)
     char_seq_lengths = char_seq_lengths[word_perm_idx].view(batch_size*max_seq_len,)
     char_seq_lengths, char_perm_idx = char_seq_lengths.sort(0, descending=True)
@@ -275,13 +284,14 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
 
 
 def train(data):
-    print("Training model...")
+    print "Training model..."
     data.show_data_summary()
     save_data_name = data.model_dir +".dset"
     data.save(save_data_name)
     model = SeqModel(data)
     loss_function = nn.NLLLoss()
     if data.optimizer.lower() == "sgd":
+        #optimizer = optim.SGD(model.parameters(), lr=data.HP_lr, momentum=data.HP_momentum)
         optimizer = optim.SGD(model.parameters(), lr=data.HP_lr, momentum=data.HP_momentum,weight_decay=data.HP_l2)
     elif data.optimizer.lower() == "adagrad":
         optimizer = optim.Adagrad(model.parameters(), lr=data.HP_lr, weight_decay=data.HP_l2)
@@ -293,10 +303,11 @@ def train(data):
         optimizer = optim.Adam(model.parameters(), lr=data.HP_lr, weight_decay=data.HP_l2)
     else:
         print("Optimizer illegal: %s"%(data.optimizer))
-        exit(1)
+        exit(0)
     best_dev = -10
     # data.HP_iteration = 1
     ## start training
+   # optimizer = torch.optim.lr_scheduler.ExponentialLR(optimizer,data.HP_lr_decay)
     for idx in range(data.HP_iteration):
         epoch_start = time.time()
         temp_start = epoch_start
@@ -319,7 +330,7 @@ def train(data):
         total_batch = train_num//batch_size+1
         for batch_id in range(total_batch):
             start = batch_id*batch_size
-            end = (batch_id+1)*batch_size
+            end = (batch_id+1)*batch_size 
             if end >train_num:
                 end = train_num
             instance = data.train_Ids[start:end]
@@ -339,8 +350,8 @@ def train(data):
                 temp_start = temp_time
                 print("     Instance: %s; Time: %.2fs; loss: %.4f; acc: %s/%s=%.4f"%(end, temp_cost, sample_loss, right_token, whole_token,(right_token+0.)/whole_token))
                 if sample_loss > 1e8 or str(sample_loss) == "nan":
-                    print("ERROR: LOSS EXPLOSION (>1e8) ! PLEASE SET PROPER PARAMETERS AND STRUCTURE! EXIT....")
-                    exit(1)
+                    print "ERROR: LOSS EXPLOSION (>1e8) ! PLEASE SET PROPER PARAMETERS AND STRUCTURE! EXIT...."
+                    exit(0)
                 sys.stdout.flush()
                 sample_loss = 0
             loss.backward()
@@ -348,15 +359,15 @@ def train(data):
             model.zero_grad()
         temp_time = time.time()
         temp_cost = temp_time - temp_start
-        print("     Instance: %s; Time: %.2fs; loss: %.4f; acc: %s/%s=%.4f"%(end, temp_cost, sample_loss, right_token, whole_token,(right_token+0.)/whole_token))
-
+        print("     Instance: %s; Time: %.2fs; loss: %.4f; acc: %s/%s=%.4f"%(end, temp_cost, sample_loss, right_token, whole_token,(right_token+0.)/whole_token))       
+        
         epoch_finish = time.time()
         epoch_cost = epoch_finish - epoch_start
         print("Epoch: %s training finished. Time: %.2fs, speed: %.2fst/s,  total loss: %s"%(idx, epoch_cost, train_num/epoch_cost, total_loss))
-        print("totalloss:", total_loss)
+        print "totalloss:", total_loss
         if total_loss > 1e8 or str(total_loss) == "nan":
-            print("ERROR: LOSS EXPLOSION (>1e8) ! PLEASE SET PROPER PARAMETERS AND STRUCTURE! EXIT....")
-            exit(1)
+            print "ERROR: LOSS EXPLOSION (>1e8) ! PLEASE SET PROPER PARAMETERS AND STRUCTURE! EXIT...."
+            exit(0)
         # continue
         speed, acc, p, r, f, _,_ = evaluate(data, model, "dev")
         dev_finish = time.time()
@@ -369,15 +380,18 @@ def train(data):
             current_score = acc
             print("Dev: time: %.2fs speed: %.2fst/s; acc: %.4f"%(dev_cost, speed, acc))
 
+        print "Current Score", current_score, "Previous best dev", best_dev
         if current_score > best_dev:
             if data.seg:
-                print("Exceed previous best f score:", best_dev)
+                print "Exceed previous best f score:", best_dev
             else:
-                print("Exceed previous best acc score:", best_dev)
-            model_name = data.model_dir +'.'+ str(idx) + ".model"
-            print("Save current best model in file:", model_name)
+                print "Exceed previous best acc score:", best_dev
+
+            model_name = data.model_dir +".model"
+            print "Overwritting model to", model_name
             torch.save(model.state_dict(), model_name)
-            best_dev = current_score
+            best_dev = current_score 
+            
         # ## decode test
         speed, acc, p, r, f, _,_ = evaluate(data, model, "test")
         test_finish = time.time()
@@ -386,28 +400,21 @@ def train(data):
             print("Test: time: %.2fs, speed: %.2fst/s; acc: %.4f, p: %.4f, r: %.4f, f: %.4f"%(test_cost, speed, acc, p, r, f))
         else:
             print("Test: time: %.2fs, speed: %.2fst/s; acc: %.4f"%(test_cost, speed, acc))
-        gc.collect()
+        gc.collect() 
 
 
 def load_model_decode(data, name):
-    print("Load Model from file: ", data.model_dir)
+    print "Load Model from file: ", data.model_dir
     model = SeqModel(data)
-    ## load model need consider if the model trained in GPU and load in CPU, or vice versa
-    # if not gpu:
-    #     model.load_state_dict(torch.load(model_dir))
-    #     # model.load_state_dict(torch.load(model_dir), map_location=lambda storage, loc: storage)
-    #     # model = torch.load(model_dir, map_location=lambda storage, loc: storage)
-    # else:
-    #     model.load_state_dict(torch.load(model_dir))
-    #     # model = torch.load(model_dir)
     model.load_state_dict(torch.load(data.load_model_dir))
 
     print("Decode %s data, nbest: %s ..."%(name, data.nbest))
     start_time = time.time()
     speed, acc, p, r, f, pred_results, pred_scores = evaluate(data, model, name, data.nbest)
+
     end_time = time.time()
     time_cost = end_time - start_time
-    if data.seg:
+    if data:
         print("%s: time:%.2fs, speed:%.2fst/s; acc: %.4f, p: %.4f, r: %.4f, f: %.4f"%(name, time_cost, speed, acc, p, r, f))
     else:
         print("%s: time:%.2fs, speed:%.2fst/s; acc: %.4f"%(name, time_cost, speed, acc))
@@ -420,14 +427,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Tuning with NCRF++')
     # parser.add_argument('--status', choices=['train', 'decode'], help='update algorithm', default='train')
     parser.add_argument('--config',  help='Configuration File' )
-
+    
     args = parser.parse_args()
     data = Data()
-    data.HP_gpu = torch.cuda.is_available()
     data.read_config(args.config)
     status = data.status.lower()
-    print("Seed num:",seed_num)
-
+    data.HP_gpu = torch.cuda.is_available()
+    print "Seed num:",seed_num
+    
     if status == 'train':
         print("MODEL: train")
         data_initialization(data)
@@ -436,12 +443,12 @@ if __name__ == '__main__':
         data.generate_instance('test')
         data.build_pretrain_emb()
         train(data)
-    elif status == 'decode':
+    elif status == 'decode':   
         print("MODEL: decode")
-        data.load(data.dset_dir)
-        data.read_config(args.config)
-        print(data.raw_dir)
-        # exit(0)
+        data.load(data.dset_dir)  
+        data.read_config(args.config) 
+        print data.raw_dir
+        # exit(0) 
         data.show_data_summary()
         data.generate_instance('raw')
         print("nbest: %s"%(data.nbest))
@@ -451,5 +458,8 @@ if __name__ == '__main__':
         else:
             data.write_decoded_results(decode_results, 'raw')
     else:
-        print("Invalid argument! Please use valid arguments! (train/test/decode)")
+        print "Invalid argument! Please use valid arguments! (train/test/decode)"
+
+
+
 

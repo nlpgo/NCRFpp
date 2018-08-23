@@ -2,9 +2,8 @@
 # @Author: Jie
 # @Date:   2017-06-15 14:11:08
 # @Last Modified by:   Jie Yang,     Contact: jieynlp@gmail.com
-# @Last Modified time: 2018-06-16 16:52:14
+# @Last Modified time: 2018-04-26 12:59:38
 
-from __future__ import print_function
 import time
 import sys
 import argparse
@@ -12,6 +11,7 @@ import random
 import copy
 import torch
 import gc
+import cPickle as pickle
 import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,11 +20,6 @@ import numpy as np
 from utils.metric import get_ner_fmeasure
 from model.seqmodel import SeqModel
 from utils.data import Data
-
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle as pickle
 
 seed_num = 42
 random.seed(seed_num)
@@ -79,8 +74,8 @@ def recover_label(pred_variable, gold_variable, mask_variable, label_alphabet, w
     for idx in range(batch_size):
         pred = [label_alphabet.get_instance(pred_tag[idx][idy]) for idy in range(seq_len) if mask[idx][idy] != 0]
         gold = [label_alphabet.get_instance(gold_tag[idx][idy]) for idy in range(seq_len) if mask[idx][idy] != 0]
-        # print("p:",pred, pred_tag.tolist())
-        # print("g:", gold, gold_tag.tolist())
+        # print "p:",pred, pred_tag.tolist()
+        # print "g:", gold, gold_tag.tolist()
         assert(len(pred)==len(gold))
         pred_label.append(pred)
         gold_label.append(gold)
@@ -96,13 +91,13 @@ def recover_nbest_label(pred_variable, mask_variable, label_alphabet, word_recov
         output:
             nbest_pred_label list: [batch_size, nbest, each_seq_len]
     """
-    # print("word recover:", word_recover.size())
+    # print "word recover:", word_recover.size()
     # exit(0)
     pred_variable = pred_variable[word_recover]
     mask_variable = mask_variable[word_recover]
     batch_size = pred_variable.size(0)
     seq_len = pred_variable.size(1)
-    print(pred_variable.size())
+    print pred_variable.size()
     nbest = pred_variable.size(2)
     mask = mask_variable.cpu().data.numpy()
     pred_tag = pred_variable.cpu().data.numpy()
@@ -133,19 +128,19 @@ def recover_nbest_label(pred_variable, mask_variable, label_alphabet, word_recov
 #     ## save data settings
 #     with open(save_file, 'w') as fp:
 #         pickle.dump(new_data, fp)
-#     print("Data setting saved to file: ", save_file)
+#     print "Data setting saved to file: ", save_file
 
 
 # def load_data_setting(save_file):
 #     with open(save_file, 'r') as fp:
 #         data = pickle.load(fp)
-#     print("Data setting loaded from file: ", save_file)
+#     print "Data setting loaded from file: ", save_file
 #     data.show_data_summary()
 #     return data
 
 def lr_decay(optimizer, epoch, decay_rate, init_lr):
     lr = init_lr/(1+decay_rate*epoch)
-    print(" Learning rate is setted as:", lr)
+    print " Learning rate is setted as:", lr
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return optimizer
@@ -162,7 +157,7 @@ def evaluate(data, model, name, nbest=None):
     elif name == 'raw':
         instances = data.raw_Ids
     else:
-        print("Error: wrong evaluate name,", name)
+        print "Error: wrong evaluate name,", name
     right_token = 0
     whole_token = 0
     nbest_pred_results = []
@@ -193,7 +188,7 @@ def evaluate(data, model, name, nbest=None):
             tag_seq = nbest_tag_seq[:,:,0]
         else:
             tag_seq = model(batch_word, batch_features, batch_wordlen, batch_char, batch_charlen, batch_charrecover, mask)
-        # print("tag:",tag_seq)
+        # print "tag:",tag_seq
         pred_label, gold_label = recover_label(tag_seq, batch_label, mask, data.label_alphabet, batch_wordrecover)
         pred_results += pred_label
         gold_results += gold_label
@@ -279,7 +274,7 @@ def batchify_with_label(input_batch_list, gpu, volatile_flag=False):
 
 
 def train(data):
-    print("Training model...")
+    print "Training model..."
     data.show_data_summary()
     save_data_name = data.model_dir +".dset"
     data.save(save_data_name)
@@ -367,11 +362,11 @@ def train(data):
 
         if current_score > best_dev:
             if data.seg:
-                print("Exceed previous best f score:", best_dev)
+                print "Exceed previous best f score:", best_dev
             else:
-                print("Exceed previous best acc score:", best_dev)
+                print "Exceed previous best acc score:", best_dev
             model_name = data.model_dir +'.'+ str(idx) + ".model"
-            print("Save current best model in file:", model_name)
+            print "Save current best model in file:", model_name
             torch.save(model.state_dict(), model_name)
             best_dev = current_score 
         # ## decode test
@@ -386,7 +381,7 @@ def train(data):
 
 
 def load_model_decode(data, name):
-    print("Load Model from file: ", data.model_dir)
+    print "Load Model from file: ", data.model_dir
     model = SeqModel(data)
     ## load model need consider if the model trained in GPU and load in CPU, or vice versa
     # if not gpu:
@@ -434,11 +429,11 @@ if __name__ == '__main__':
     data.test_dir = args.test
     data.model_dir = args.savemodel
     data.dset_dir = args.savedset
-    print("aaa",data.dset_dir)
+    print "aaa",data.dset_dir
     status = args.status.lower()
     save_model_dir = args.savemodel
     data.HP_gpu = torch.cuda.is_available()
-    print("Seed num:",seed_num)
+    print "Seed num:",seed_num
     data.number_normalized = True
     data.word_emb_dir = "../data/glove.6B.100d.txt"
     
@@ -469,7 +464,7 @@ if __name__ == '__main__':
         else:
             data.write_decoded_results(decode_results, 'raw')
     else:
-        print("Invalid argument! Please use valid arguments! (train/test/decode)")
+        print "Invalid argument! Please use valid arguments! (train/test/decode)"
 
 
 

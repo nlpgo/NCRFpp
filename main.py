@@ -406,7 +406,7 @@ def train(data):
 def load_model_decode(data, name):
     print "Load Model from file: ", data.model_dir
     model = SeqModel(data)
-    model.load_state_dict(torch.load(data.load_model_dir))
+    model.load_state_dict(torch.load(data.load_model_dir, map_location=lambda storage, loc: storage))
 
     print("Decode %s data, nbest: %s ..."%(name, data.nbest))
     start_time = time.time()

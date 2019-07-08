@@ -20,6 +20,7 @@ import numpy as np
 from utils.metric import get_ner_fmeasure
 from model.seqmodel import SeqModel
 from utils.data import Data
+from server import Server
 
 import os
 #Uncomment/Comment these lines to determine when and which GPU(s) to use
@@ -402,12 +403,22 @@ def train(data):
             print("Test: time: %.2fs, speed: %.2fst/s; acc: %.4f"%(test_cost, speed, acc))
         gc.collect() 
 
+def load_data_for_decoding(data):
+    data.load(data.dset_dir)
+    data.read_config(args.config)
+    print data.raw_dir
+    # exit(0) 
+    data.show_data_summary()
+    data.generate_instance('raw')
+    print("nbest: %s"%(data.nbest))
 
-def load_model_decode(data, name):
+def load_model(data):
     print "Load Model from file: ", data.model_dir
     model = SeqModel(data)
     model.load_state_dict(torch.load(data.load_model_dir, map_location=lambda storage, loc: storage))
+    return model
 
+def decode(data, model, name):
     print("Decode %s data, nbest: %s ..."%(name, data.nbest))
     start_time = time.time()
     speed, acc, p, r, f, pred_results, pred_scores = evaluate(data, model, name, data.nbest)
@@ -420,13 +431,21 @@ def load_model_decode(data, name):
         print("%s: time:%.2fs, speed:%.2fst/s; acc: %.4f"%(name, time_cost, speed, acc))
     return pred_results, pred_scores
 
+def write_results(data, decode_results, pred_scores):
+    if data.nbest:
+        data.write_nbest_decoded_results(decode_results, pred_scores, 'raw')
+    else:
+        data.write_decoded_results(decode_results, 'raw')
 
-
+def load_model_decode(data, name):
+    model = load_model(data)
+    return decode(data, model, name)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Tuning with NCRF++')
     # parser.add_argument('--status', choices=['train', 'decode'], help='update algorithm', default='train')
-    parser.add_argument('--config',  help='Configuration File' )
+    parser.add_argument('--config',  help='Configuration File')
+    parser.add_argument('--port',  help='Listening port')
     
     args = parser.parse_args()
     data = Data()
@@ -443,22 +462,17 @@ if __name__ == '__main__':
         data.generate_instance('test')
         data.build_pretrain_emb()
         train(data)
+    elif args.port is not None:
+        load_data_for_decoding(data)
+        model = load_model(data)
+        server = Server(args.port, data, lambda data: write_results(data, *decode(data, model, 'raw')))
+        server.run()
     elif status == 'decode':   
-        print("MODEL: decode")
-        data.load(data.dset_dir)  
-        data.read_config(args.config) 
-        print data.raw_dir
-        # exit(0) 
-        data.show_data_summary()
-        data.generate_instance('raw')
-        print("nbest: %s"%(data.nbest))
+        load_data_for_decoding(data)
         decode_results, pred_scores = load_model_decode(data, 'raw')
-        if data.nbest:
-            data.write_nbest_decoded_results(decode_results, pred_scores, 'raw')
-        else:
-            data.write_decoded_results(decode_results, 'raw')
+        write_results(data, decode_results, pred_scores)
     else:
-        print "Invalid argument! Please use valid arguments! (train/test/decode)"
+        print "Invalid argument! Please use valid arguments! (train/test/decode/server)"
 
 
 

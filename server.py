@@ -16,12 +16,12 @@ class Server(object):
             sys.stdout.flush()
             s.listen(1)
             while True:
-                conn, addr = s.accept()
-                print 'Connection from: ', addr 
-                config_path = conn.recv(1024)
-                self.data.read_config(config_path) # Reload config to update input and output directories
-                self.data.generate_instance('raw')
                 try:
+                    conn, addr = s.accept()
+                    print 'Connection from: ', addr 
+                    config_path = conn.recv(1024)
+                    self.data.read_config(config_path) # Reload config to update input and output directories
+                    self.data.generate_instance('raw')
                     print 'Try decode...'
                     sys.stdout.flush()
                     self.function(self.data)

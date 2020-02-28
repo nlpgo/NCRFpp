@@ -1,4 +1,5 @@
 import sys
+import traceback
 import socket
 from pprint import pprint
 from contextlib import closing
@@ -19,7 +20,7 @@ class Server(object):
                 try:
                     conn, addr = s.accept()
                     print 'Connection from: ', addr 
-                    config_path = conn.recv(1024)
+                    config_path = conn.recv(1024).rstrip()
                     self.data.read_config(config_path) # Reload config to update input and output directories
                     self.data.generate_instance('raw')
                     print 'Try decode...'
@@ -27,6 +28,7 @@ class Server(object):
                     self.function(self.data)
                     conn.sendall('ok')
                 except Exception as e:
+                    traceback.print_exc()
                     print e.message
                     conn.sendall(str(e))
 

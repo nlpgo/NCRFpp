@@ -291,11 +291,12 @@ class Data:
         for idx in range(sent_num):
             sent_length = len(predict_results[idx])
             for idy in range(sent_length):
-                ## content_list[idx] is a list with [word, char, label]
-             #   print content_list[idx][1]
-             #   print content_list[idx][1][0]
-             #   print content_list[idx][1][0][idy]
-                fout.write(content_list[idx][0][idy].encode('utf-8') +" "+ content_list[idx][1][idy][0].encode('utf-8') + " " + predict_results[idx][idy] + '\n')
+
+                string_to_write=content_list[idx][0][idy].encode('utf-8')+" "
+                for idx_feat_to_write in range(1,len(self.feature_alphabets)+1):
+                    string_to_write+=content_list[idx][idx_feat_to_write][idy][0].encode('utf-8')+" "
+                fout.write(string_to_write + predict_results[idx][idy] + '\n')
+                #fout.write(content_list[idx][0][idy].encode('utf-8') +" "+ content_list[idx][1][idy][0].encode('utf-8') + " " + predict_results[idx][idy] + '\n')
             fout.write('\n')
         fout.close()
         print("Predict %s result has been written into file. %s"%(name, self.decode_dir))
